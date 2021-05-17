@@ -1,4 +1,4 @@
-import os
+import os, sys
 
 def bricks(char:str, n : int) -> str:
     """ Makes a line of a single character of length n """
