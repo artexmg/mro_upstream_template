@@ -5,10 +5,8 @@ def welcome() -> int:
     """
     Initial instructions 
     """
-    print(f"{{cookiecutter.project_name}}")
+    print(f"\n\nToDo:\n")
     
-    print(f"{{cookiecutter.project_short_description}}\n")
-
     # Set of inital tasks needed for the template to work 
     print(f'\tcd {{cookiecutter.repo_name}}\n')
     print(f'\tgit init\n')
