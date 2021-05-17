@@ -1,0 +1,15 @@
+{
+    "full_name": "Your name",
+    "email": "Your address email (eq. you@example.com)",
+    "github_username": "martahonoil",
+    "project_name": "Name of the project",
+    "project_slug": "{{ cookiecutter.project_name.lower().replace(' ', '_') }}",
+    "project_short_description": "A short description of the project",
+    "release_date": "{% now 'local' %}",
+    "version": "0.1.0",
+    "install_common_utils": ["yes","no"],
+
+    "repo_name":"mdp-fsm2-{{cookiecutter.project_name.lower().replace(' ','-')}}",
+
+    "_extensions": ["jinja2_time.TimeExtension"]    
+}

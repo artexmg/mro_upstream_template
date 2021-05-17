@@ -1,0 +1,26 @@
+---
+{% raw %}
+- hosts: localhost
+  become: true
+  vars:      
+          emr_users: "{{ lookup('aws_ssm', '/' + env + '/mdp/keypair/emr/personal/', region='us-east-1', bypath=True, recursive=True) | dict2items }}"   
+  tasks:
+
+        - name: Ensure users
+          user:
+            name: "{{ item.key.split('/')[-1] }}"
+          loop: '{{ emr_users }}'
+
+        - name: Ensure auth keys
+          authorized_key:
+            user: "{{ item.key.split('/')[-1] }}"
+            state: present
+            key: "{{ item.value }}"
+          loop: '{{ emr_users }}'
+
+        - name: Ensure this job is scheduled
+          cron:
+            name: User keys sync
+            minute: "*/15" # all other params are '*' by default
+            job: ansible-playbook /opt/mdp-artifacts/shared/sync_users.yml --extra-vars "env={{ env }}"
+{% endraw %}

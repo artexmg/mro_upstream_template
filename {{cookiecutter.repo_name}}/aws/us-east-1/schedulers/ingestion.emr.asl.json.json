@@ -1,0 +1,31 @@
+{
+    "expression": "cron(30 7 ? * * *)",
+    "description": "Every day ${workflows["self"]["template_lower_glue_ingest"]}",
+    "sfn_id": "${workflows["self"]["template_lower_glue_ingest"]}",
+    "is_enabled": true,
+    "input": {
+        "SkipIngestion": false,
+        "SkipGlueUpload": false,
+        "SkipSnowflakeProcess": false,
+        "Config": {
+            "Glue": {
+                "MaxCapacity": 5,
+                "Timeout": 240,
+                "DB": "${environment}_mdp_template_lower_upstream"
+            },
+            "Aws": {
+                "REGION": "us-east-1",
+                "LANDING": "s3://${buckets["self"]["raw"]}",
+                "PREPARED": "s3://${buckets["self"]["prepared"]}"
+            },
+            "Snowflake": {
+                "USER": "/${environment}/mdp/template_lower/snowflake/username",
+                "PASSWORD": "/${environment}/mdp/template_lower/snowflake/password",
+                "DATABASE": "${environment}_TEMPLATE-UPPER",
+                "WAREHOUSE": "${environment}_VWH_TEMPLATE-UPPER_TRANSFORMATIONS",
+                "SCHEMA": "STAGING",
+                "URL": "/${environment}/mdp/template_lower/snowflake/url"
+            }
+        }
+    }
+}

@@ -1,0 +1,382 @@
+name: 'build'
+
+on:
+  pull_request:
+    branches:
+      - 'develop'
+
+  push:
+    branches:
+      - 'develop'
+      - 'master'
+      - 'release-*'
+
+env:
+  ARTIFACTORY_BUCKET: "mro-devops-esp-artifacts"
+  DEV_ARTIFACTORY_BUCKET: "mro-dev-esp-artifacts-8at6"
+  ARTIFACT_DIRS: "conf dist shared workflows aws snowflake"
+  PYTHON_ARCHITECTURE: "x64"
+  POETRY_VERSION: "1.0.10"
+  TARGET_DIR: "target"
+  ACTIONS_ALLOW_UNSECURE_COMMANDS: true
+
+jobs:
+  get-commit-message:
+    runs-on: ubuntu-18.04
+
+    outputs:
+      commit-message: ${{ steps.cm.outputs.commit-message}}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: get commit message
+        id: cm
+        run: |
+          MSG=$(git log --format=%B -n 1 ${{ github.event.after }})
+          echo "::set-output name=commit-message::${MSG}"
+
+      - name: check commit message
+        if: ${{ github.event_name != 'pull_request' }}
+        run: |
+          MSG=$(git log --format=%B -n 1 ${{ github.event.after }})
+
+          if ! egrep "^(feat|fix|hotfix|chore)\(.+\): .+(, AB#[0-9]+)*((,)?\s+\(#[0-9]+\))?$" <<< "$MSG"
+          then
+            echo "Error: wrong comment formate."
+            echo "Comment should be: <(feat|fix|hotfix|chore)>(<subsystem>): <description>, AB#<task id> [(#<pr_number>)]"
+            echo "This message: $MSG"
+            exit 255
+          fi
+
+      - name: check pr title
+        if: ${{ github.event_name == 'pull_request' }}
+        run: |
+          pr_title="${{ github.event.pull_request.title }}"
+
+          if ! egrep "^(feat|fix|hotfix|chore)\(.+\): .+, AB#[0-9]+((,)?\s+\(#[0-9]+\))?$" <<< "$pr_title"
+          then
+            echo "Error: wrong PR title format"
+            echo "Title should be: <(feat|fix|hotfix|chore)>(<subsystem>): <description>, AB#<task id> [(#<pr_number>)]"
+          fi
+
+  run-tests:
+    needs: get-commit-message
+    if: ${{ !contains(needs.get-commit-message.outputs.commit-message, '[noci]') }}
+
+    defaults:
+      run:
+        shell: bash
+
+    #TODO: migrate to self-hosted whenever we will start using SonarQube;
+    #NB: it seems that self-hosted stores state between runs, check it!
+    runs-on: ubuntu-18.04
+
+    steps:
+      - name: Checkout code repo
+        if: ${{ github.event_name == 'push'}}
+        uses: actions/checkout@v2
+        with:
+          ref: ${{ github.ref }}
+
+      - name: Checkout code repo
+        if: ${{ github.event_name == 'pull_request' }}
+        uses: actions/checkout@v2
+
+      - name: Get python version
+        id: pv
+        run: |
+          set -x
+          if [ -f .python-version ]; then
+            export PYTHON_VERSION=$(cat .python-version)
+          else
+            export PYTHON_VERSION="unknown"
+          fi
+          echo "::set-output name=python_version::${PYTHON_VERSION}"
+          echo "::set-output name=poetry_version::${POETRY_VERSION}"
+
+      - name: Python install
+        if: steps.pv.outputs.python_version != 'unknown'
+        uses: actions/setup-python@v2
+        with:
+          python-version: ${{ steps.pv.outputs.python_version }}
+          architecture: ${{ env.PYTHON_ARCHITECTURE }}
+
+      - name: Poetry Install
+        if: steps.pv.outputs.python_version != 'unknown'
+        uses: dschep/install-poetry-action@v1.3
+        with:
+          version: ${{ steps.pv.outputs.poetry_version }}
+
+      - name: Install dependencies via Poetry
+        run: |
+          poetry shell
+          poetry install
+
+      - name: Run pre-commit tests
+        run: |
+          pre-commit install -f
+          pre-commit run --all-files
+
+      - name: Generate Flake8 reports
+        run: |
+          mkdir junit
+          flake8_junit flake8.txt junit/flake8.xml
+
+      - name: Perform Pytest check
+        run: pytest --junitxml=junit/pytest.xml --cov-report=xml
+
+      - name: SonarQube
+        run: |
+          echo "Not implemented yet"
+
+  generate-version:
+    needs: [get-commit-message, run-tests]
+
+    if: ${{ !contains(needs.get-commit-message.outputs.commit-message, '[noci]') && (github.event_name == 'push' || contains(needs.get-commit-message.outputs.commit-message, '[redeploy]')) }}
+
+    defaults:
+      run:
+        shell: bash
+
+    runs-on: self-hosted
+
+    outputs:
+      new-version: ${{ steps.gv.outputs.new-version }}
+      cmdb-ref: ${{ steps.gv.outputs.cmdb-ref }}
+      commit-author: ${{ steps.gv.outputs.commit-author }}
+      repo-name: ${{ steps.gv.outputs.repo-name }}
+
+    steps:
+      - name: Checkout code repo
+        if: ${{ github.event_name == 'push' }}
+        uses: actions/checkout@v2
+        with:
+          fetch-depth: 0
+          ref: ${{ github.ref }}
+
+      - name: Checkout code repo
+        if: ${{ github.event_name == 'pull_request' }}
+        uses: actions/checkout@v2
+        with:
+          fetch-depth: 0
+          ref: ${{ github.head_ref }}
+
+      - name: Generate version
+        id: gv
+        run: |
+          set -x
+
+          export COMMIT_AUTHOR=$(git log -1 --pretty=format:'%an')
+          echo "::set-output name=commit-author::${COMMIT_AUTHOR}"
+          export REPO_NAME=$(echo "${GITHUB_REPOSITORY}" | awk -F'/' '{print $NF}')
+          echo "::set-output name=repo-name::${REPO_NAME}"
+
+          commit_message='${{ needs.get-commit-message.outputs.commit-message }}'
+
+          case "${GITHUB_EVENT_NAME}_${GITHUB_BASE_REF}" in
+            pull_request_develop)
+              branch="${GITHUB_BASE_REF}"
+              cmdb_ref="cmdb-dev"
+              pr_args="--pr-number ${{ github.event.number }} --job-number ${GITHUB_RUN_NUMBER}"
+              pr_title="${{ github.event.pull_request.title }}"
+            ;;
+            push_)
+              branch="${GITHUB_REF}"
+
+              if [[ "${GITHUB_REF}" = refs/heads/develop ]]; then
+                cmdb_ref="cmdb-dev"
+
+              elif [[ "${GITHUB_REF}" = refs/heads/release* ]]; then
+                cmdb_ref="cmdb-test"
+
+              elif [[ "${GITHUB_REF}" = refs/heads/master ]]; then
+                cmdb_ref="cmdb-test"
+              fi
+            ;;
+            *)
+              echo "Error: unknown event"
+              exit 255
+            ;;
+          esac
+
+          new_version=$(python3 ./.ops/get_new_version.py \
+            --branch "$branch" \
+            --event "$GITHUB_EVENT_NAME" \
+            --message "$commit_message" \
+            --pr-title "$pr_title" \
+            $pr_args
+          )
+
+          if [[ -z "$new_version" ]]; then
+            echo "Error: version is not defined"
+            exit 255
+          fi
+
+          echo "::set-output name=new-version::$new_version"
+          echo "::set-output name=cmdb-ref::$cmdb_ref"
+
+  upload-artifacts:
+    needs: [get-commit-message, generate-version]
+
+    if: ${{ !contains(needs.get-commit-message.outputs.commit-message, '[noci]') && (github.event_name == 'push' || contains(needs.get-commit-message.outputs.commit-message, '[redeploy]')) }}
+
+    runs-on: ubuntu-18.04
+
+    steps:
+      - name: Checkout code repo
+        uses: actions/checkout@v2
+
+      - name: Get python version
+        id: pv
+        run: |
+          set -x
+          if [[ -f .python-version ]]; then
+            export PYTHON_VERSION=$(cat .python-version)
+          else
+            export PYTHON_VERSION="unknown"
+          fi
+          echo "::set-output name=python_version::${PYTHON_VERSION}"
+
+      - name: Create target and copy jobs dir
+        run: |
+          set -x
+
+          mkdir ${{ env.TARGET_DIR }}
+
+          # dir jobs should be copied to target dir before poetry runs install
+          # to avoid extra artifacts such as pyc files and etc
+
+          export REPO_NAME=$(echo "${GITHUB_REPOSITORY}" | awk -F'/' '{print $NF}' | sed 's/-/_/g')
+          if [[ -d "${REPO_NAME}" ]]; then
+            cp -a "${REPO_NAME}" ${{ env.TARGET_DIR }}
+          fi
+
+      - name: Python install
+        if: steps.pv.outputs.python_version != 'unknown'
+        uses: actions/setup-python@v2
+        with:
+          python-version: ${{ steps.pv.outputs.python_version }}
+          architecture: ${{ env.PYTHON_ARCHITECTURE }}
+
+      - name: Poetry Install
+        if: steps.pv.outputs.python_version != 'unknown'
+        uses: dschep/install-poetry-action@v1.3
+        with:
+          version: ${{ env.POETRY_VERSION }}
+
+      - name: Poetry build
+        if: steps.pv.outputs.python_version != 'unknown'
+        run: poetry build
+
+      - name: Poetry Generate requirements.txt
+        if: steps.pv.outputs.python_version != 'unknown'
+        run: poetry export -f requirements.txt -o ${{ env.TARGET_DIR }}/requirements.txt
+
+      - name: Generate details.txt
+        run: |
+          set -x
+
+          env | \
+          grep -e '^GITHUB' -e '^RUNNER' | \
+          sort > ${{ env.TARGET_DIR }}/details.txt
+
+      - name: Copy artifacts to target dir
+        run: |
+          set -x
+
+          for dir in ${{ env.ARTIFACT_DIRS }}; do
+            if [[ -d "$dir" ]]; then
+              cp -a "$dir" "${{ env.TARGET_DIR }}"
+            fi
+          done
+
+      - name: Create tar.gz with artifacts
+        env:
+          VERSION: ${{ needs.generate-version.outputs.new-version }}
+          REPO: ${{ needs.generate-version.outputs.repo-name }}
+        run: |
+          set -x
+
+          tar -czvf "${REPO}-${VERSION}.tgz" \
+            -C "${{ env.TARGET_DIR }}" \
+            "./"
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_DEFAULT_REGION }}
+
+      - name: Upload-artifacts tar.gz
+        env:
+          VERSION: ${{ needs.generate-version.outputs.new-version }}
+          REPO: ${{ needs.generate-version.outputs.repo-name }}
+          ARTIFACTORY_BUCKET: ${{ env.ARTIFACTORY_BUCKET }}
+        run: |
+          set -x
+
+          aws s3 cp  ${REPO}-${VERSION}.tgz "s3://${ARTIFACTORY_BUCKET}/artifacts/${REPO}/${VERSION}/${REPO}-${VERSION}.tgz"
+
+  set-version:
+    needs: [generate-version, upload-artifacts]
+
+
+    runs-on: self-hosted
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      - name: Push tag
+        if: github.event_name == 'push'
+        env:
+          AUTHOR: ${{ needs.generate-version.outputs.commit-author }}
+          VERSION: ${{ needs.generate-version.outputs.new-version }}
+          TAG: ${{ needs.generate-version.outputs.new-version }}
+        run: |
+          set -x
+
+          if [[ -n "$TAG" ]]; then
+            git config --global user.email "MDP_CI@marathonoil.com"
+            git config --global user.name "MDP CI GitHub"
+
+            git tag -a "${TAG}" -m "Updated to ${VERSION} by ${AUTHOR}"
+            git push origin "${TAG}"
+          fi
+
+  update-cmdb:
+    needs: [get-commit-message, generate-version, set-version]
+
+    if: ${{ !contains(needs.get-commit-message.outputs.commit-message, '[noci]') && (github.event_name == 'push' || contains(needs.get-commit-message.outputs.commit-message, '[redeploy]')) }}
+
+    runs-on: self-hosted
+
+    steps:
+
+      - name: Checkout cmdb repo
+        uses: actions/checkout@v2
+        with:
+          repository: marathonoil/esp-analytics-infrastructure
+          ref: ${{ needs.generate-version.outputs.cmdb-ref }}
+          token: ${{ secrets.GH_PACKAGES_TOKEN }}
+          path: './esp-analytics-infrastructure'
+
+      - name: Update version in cmdb
+        env:
+          VERSION: ${{ needs.generate-version.outputs.new-version }}
+          token: ${{ secrets.GH_PACKAGES_TOKEN }}
+          author: ${{ needs.generate-version.outputs.commit-author }}
+          REPO: ${{ needs.generate-version.outputs.repo-name }}
+        run: |
+          cd ${GITHUB_WORKSPACE}/esp-analytics-infrastructure/ && \
+          ./update.py "${REPO}" "${VERSION}" && \
+          git config --global user.email "MDP_CI@marathonoil.com" && \
+          git config --global user.name "MDP CI GitHub" && \
+          git add cmdb.json && \
+          git commit -m "Updated ${REPO} ${VERSION} ${author}" && \
+          git push

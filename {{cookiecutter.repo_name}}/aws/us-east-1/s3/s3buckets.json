@@ -1,0 +1,24 @@
+{
+    "raw": {
+        "shared_with": {},
+        "options": {
+            "force_destroy": false,
+            "versioning_enabled": true
+        },
+
+        "tags": {
+            "ApplicationRole": "RawStorage"
+        }
+    },
+    "prepared": {
+        "shared_with": {},
+        "options": {
+            "force_destroy": false,
+            "versioning_enabled": true
+        },
+
+        "tags": {
+            "ApplicationRole": "PreparedStorage"
+        }
+    }
+}

@@ -1,0 +1,143 @@
+{
+  "Comment": "TEMPLATE-UPPER Ingest Data Glue",
+  "StartAt": "Optional ingest data",
+  "States": {
+    "Optional ingest data": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.SkipIngestion",
+          "BooleanEquals": true,
+          "Next": "Optional upload data to glue"
+        },
+        {
+          "Variable": "$.SkipIngestion",
+          "BooleanEquals": false,
+          "Next": "Ingest-TEMPLATE-UPPER-Data"
+        }
+      ],
+      "Default": "Ingest-TEMPLATE-UPPER-Data"
+    },
+    "Ingest-TEMPLATE-UPPER-Data": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::glue:startJobRun.sync",
+      "Parameters": {
+        "JobName": "${glue_jobs["INGEST_DATA_TO_S3"]}",
+        "MaxCapacity.$": "$.Config.Glue.MaxCapacity",
+        "Timeout.$": "$.Config.Glue.Timeout",
+        "Arguments": {
+          "--aws_region.$": "$.Config.Aws.REGION",
+          "--output_bucket.$": "$.Config.Aws.LANDING"
+        }
+      },
+      "ResultPath": "$.PreviousResult",
+      "OutputPath": "$",
+      "Next": "Optional upload data to glue",
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "Next": "Notify Failure"
+        }
+      ]
+    },
+    "Optional upload data to glue": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.SkipGlueUpload",
+          "BooleanEquals": true,
+          "Next": "Optional write to Snowflake"
+        },
+        {
+          "Variable": "$.SkipGlueUpload",
+          "BooleanEquals": false,
+          "Next": "Upload data to glue"
+        }
+      ],
+      "Default": "Upload data to glue"
+    },
+    "Upload data to glue": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::glue:startJobRun.sync",
+      "Parameters": {
+        "JobName": "${glue_jobs["UPLOAD_DATA_TO_GLUE"]}",
+        "MaxCapacity.$": "$.Config.Glue.MaxCapacity",
+        "Timeout.$": "$.Config.Glue.Timeout",
+        "Arguments": {
+          "--input_bucket.$": "$.Config.Aws.LANDING",
+          "--output_bucket.$": "$.Config.Aws.PREPARED",
+          "--aws_region.$": "$.Config.Aws.REGION"
+        }
+      },
+      "ResultPath": "$.PreviousResult",
+      "OutputPath": "$",
+      "Next": "Optional write to Snowflake",
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "Next": "Notify Failure"
+        }
+      ]
+    },
+    "Optional write to Snowflake": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.SkipSnowflakeProcess",
+          "BooleanEquals": true,
+          "Next": "Notify Success"
+        },
+        {
+          "Variable": "$.SkipSnowflakeProcess",
+          "BooleanEquals": false,
+          "Next": "Write data to Snowflake"
+        }
+      ],
+      "Default": "Write data to Snowflake"
+    },
+    "Write data to Snowflake": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::glue:startJobRun.sync",
+      "Parameters": {
+        "JobName": "${glue_jobs["WRITE_DATA_TO_SNOWFLAKE"]}",
+        "MaxCapacity.$": "$.Config.Glue.MaxCapacity",
+        "Timeout.$": "$.Config.Glue.Timeout",
+        "Arguments": {
+          "--sf_user.$": "$.Config.Snowflake.USER",
+          "--sf_passwd.$": "$.Config.Snowflake.PASSWORD",
+          "--sf_db.$": "$.Config.Snowflake.DATABASE",
+          "--sf_warehouse.$": "$.Config.Snowflake.WAREHOUSE",
+          "--sf_schema.$": "$.Config.Snowflake.SCHEMA",
+          "--sf_url.$": "$.Config.Snowflake.URL",
+          "--input_bucket.$": "$.Config.Aws.PREPARED"
+        }
+      },
+      "Next": "Notify Success",
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "Next": "Notify Failure"
+        }
+      ]
+    },
+    "Notify Success": {
+      "Type": "Pass",
+      "Result": "Success",
+      "End": true
+    },
+    "Notify Failure": {
+      "Type": "Pass",
+      "Result": "Failed",
+      "Next": "IHS Failure"
+    },
+    "IHS Failure": {
+      "Type": "Fail"
+    }
+  }
+}

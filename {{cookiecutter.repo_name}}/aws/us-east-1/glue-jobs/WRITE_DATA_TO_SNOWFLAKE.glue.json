@@ -1,0 +1,20 @@
+{
+    "job": {
+        "glue_version": "2.0",
+        "worker_type": "G.1X",
+        "connections": ["mro-global-glue-connection"],
+        "number_of_workers": "5",
+        "default_arguments": {
+            "--extra-py-files": "s3://${artifact_bucket}/libs/esp/jlogging.zip,s3://${artifact_bucket}/artifacts/${application_name}/${application_version}/dist/mdp_template_lower_upstream-0.1.0-py3-none-any.whl",
+            "--extra-jars": "s3://${artifact_bucket}/libs/esp/snowflake_drivers/snowflake-ingest-sdk-0.9.9.jar,s3://${artifact_bucket}/libs/esp/snowflake_drivers/snowflake-jdbc-3.12.12.jar,s3://${artifact_bucket}/libs/esp/snowflake_drivers/spark-snowflake_2.11-2.8.1-spark_2.4.jar"
+        },
+        "tags": {
+            "ApplicationRole": "upload data to Glue"
+        },
+        "command": {
+            "type": "glueetl",
+            "python_version": "3",
+            "job_language": "python"
+        }
+    }
+}
