@@ -44,13 +44,13 @@ jobs:
         run: |
           MSG=$(git log --format=%B -n 1 ${{ github.event.after }})
 
-          if ! egrep "^(feat|fix|hotfix|chore)\(.+\): .+(, AB#[0-9]+)*((,)?\s+\(#[0-9]+\))?$" <<< "$MSG"
-          then
-            echo "Error: wrong comment formate."
-            echo "Comment should be: <(feat|fix|hotfix|chore)>(<subsystem>): <description>, AB#<task id> [(#<pr_number>)]"
-            echo "This message: $MSG"
-            exit 255
-          fi
+          # if ! egrep "^(feat|fix|hotfix|chore)\(.+\): .+(, AB#[0-9]+)*((,)?\s+\(#[0-9]+\))?$" <<< "$MSG"
+          # then
+          #   echo "Error: wrong comment formate."
+          #   echo "Comment should be: <(feat|fix|hotfix|chore)>(<subsystem>): <description>, AB#<task id> [(#<pr_number>)]"
+          #   echo "This message: $MSG"
+          #   exit 255
+          # fi
 
       - name: check pr title
         if: ${{ github.event_name == 'pull_request' }}
