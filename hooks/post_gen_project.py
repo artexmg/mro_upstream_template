@@ -33,3 +33,7 @@ def welcome() -> int:
     print(f"{marquee}")
 
     return 0
+
+if __name__ == "__main__":
+    welcome()
+    sys.exit(0)    

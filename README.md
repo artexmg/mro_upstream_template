@@ -15,7 +15,7 @@ poetry add cookiecutter
 Generate a Python package project
 
 ```bash
-cookiecutter https:\\github.com\artexmg\mro_upstream_template.git
+cookiecutter https://github.com/artexmg/mro_upstream_template.git
 ```
 
 
