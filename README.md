@@ -18,6 +18,7 @@ Generate a Python package project
 cookiecutter https:\\github.com\artexmg\mro_upstream_template.git
 ```
 
+
 Then follow the README instructions in the generated project
 
-
+(c) 2020 - 2021 AMG
